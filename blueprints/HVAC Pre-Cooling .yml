@@ -1,0 +1,172 @@
+blueprint:
+  name: Smart HVAC Pre-Cooling (v2) with Multi-Sensor Occupancy & Load Awareness
+  description: >
+    Pre-cools HVAC zones based on solar forecast, battery state of charge,
+    occupancy (camera, motion, mmWave), and adaptive appliance draw awareness
+    to reduce energy use during peak times.
+  domain: automation
+  input:
+    climate_entity:
+      name: HVAC Climate Entity
+      selector:
+        entity:
+          domain: climate
+
+    occupancy_sensors:
+      name: Occupancy Sensors (Camera, Motion, mmWave)
+      selector:
+        entity:
+          multiple: true
+          domain: binary_sensor
+
+    battery_soc_sensor:
+      name: Enphase Battery SOC Sensor
+      selector:
+        entity:
+          domain: sensor
+
+    solar_forecast_sensors:
+      name: Forecast.Solar Hourly Sensors
+      description: List of forecast sensors for the upcoming hours (e.g., next 4h).
+      selector:
+        entity:
+          multiple: true
+          domain: sensor
+
+    high_draw_sensors:
+      name: High-Draw Appliance Sensors
+      description: Real-time wattage sensors from SPAN to check draw
+      selector:
+        entity:
+          multiple: true
+          domain: sensor
+
+    draw_threshold:
+      name: Max Allowed Draw Per Circuit (W)
+      default: 500
+      selector:
+        number:
+          min: 100
+          max: 3000
+          unit_of_measurement: W
+
+    temp_low_precool:
+      name: Pre-cool Lower Temp
+      default: 68
+      selector:
+        number:
+          min: 60
+          max: 75
+          unit_of_measurement: °F
+
+    temp_high_precool:
+      name: Pre-cool Upper Temp
+      default: 72
+      selector:
+        number:
+          min: 65
+          max: 78
+          unit_of_measurement: °F
+
+    temp_low_normal:
+      name: Normal Lower Temp
+      default: 74
+      selector:
+        number:
+          min: 60
+          max: 78
+          unit_of_measurement: °F
+
+    temp_high_normal:
+      name: Normal Upper Temp
+      default: 78
+      selector:
+        number:
+          min: 65
+          max: 82
+          unit_of_measurement: °F
+
+    precool_duration:
+      name: Pre-cool Duration (HH:MM:SS)
+      default: "01:00:00"
+      selector:
+        text:
+
+    min_battery_soc:
+      name: Minimum Battery SOC to Trigger
+      default: 90
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+
+    min_forecast_threshold:
+      name: Minimum Forecasted Solar (W)
+      default: 1500
+      selector:
+        number:
+          min: 500
+          max: 10000
+          unit_of_measurement: W
+
+trigger:
+  - platform: time_pattern
+    minutes: "/10"
+
+condition:
+  - condition: template
+    value_template: >
+      {% set forecasts = namespace(max_val=0) %}
+      {% for e in this.attributes.solar_forecast_sensors %}
+        {% set val = states(e) | float(0) %}
+        {% if val > forecasts.max_val %}
+          {% set forecasts.max_val = val %}
+        {% endif %}
+      {% endfor %}
+      {{ forecasts.max_val > (min_forecast_threshold | float(0)) }}
+
+  - condition: template
+    value_template: >
+      {{ states(battery_soc_sensor) | float(0) >= (min_battery_soc | float(0)) }}
+
+  - condition: template
+    value_template: >
+      {% for sensor in this.attributes.occupancy_sensors %}
+        {% if is_state(sensor, 'on') %}
+          {{ false }}
+        {% endif %}
+      {% endfor %}
+      {{ true }}
+
+  - condition: template
+    value_template: >
+      {% set draw_limit_exceeded = false %}
+      {% for sensor in this.attributes.high_draw_sensors %}
+        {% if states(sensor) | float(0) > draw_threshold | float(0) %}
+          {% set draw_limit_exceeded = true %}
+        {% endif %}
+      {% endfor %}
+      {% set forecast_buffer = forecasts.max_val | float(0) - (draw_threshold | float(0)) * this.attributes.high_draw_sensors | count %}
+      {{ not draw_limit_exceeded or forecast_buffer > 1000 }}
+
+action:
+  - service: climate.set_temperature
+    data:
+      hvac_mode: auto
+      target_temp_low: "{{ temp_low_precool }}"
+      target_temp_high: "{{ temp_high_precool }}"
+    target:
+      entity_id: !input climate_entity
+
+  - delay: !input precool_duration
+
+  - service: climate.set_temperature
+    data:
+      hvac_mode: auto
+      target_temp_low: "{{ temp_low_normal }}"
+      target_temp_high: "{{ temp_high_normal }}"
+    target:
+      entity_id: !input climate_entity
+
+mode: single
