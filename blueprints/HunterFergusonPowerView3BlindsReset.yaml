@@ -7,7 +7,7 @@ blueprint:
   input:
     blind_groups:
       name: Blind Groups Configuration
-      description: List of blind group configs. Each group contains:
+      description: List of blind group configs. Each group contains
         - blind_entities: list of binary_sensor entities (reachable = 'on')
         - smart_plug: switch entity for the hub
         - cooldown_tracker: input_datetime entity for cooldown
