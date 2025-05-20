@@ -1,0 +1,114 @@
+blueprint:
+  name: Targeted Blind Hub Recovery
+  description: >
+    Monitors groups of blinds for offline status and selectively power cycles the corresponding smart plug.
+    Includes cooldowns, sensitivity threshold, and delay settings.
+  domain: automation
+  input:
+    blind_groups:
+      name: Blind Groups Configuration
+      description: List of blind group configs. Each group contains:
+        - blind_entities: list of binary_sensor entities (reachable = 'on')
+        - smart_plug: switch entity for the hub
+        - cooldown_tracker: input_datetime entity for cooldown
+      selector:
+        object:
+
+    offline_threshold:
+      name: Offline Count Threshold
+      description: Number of offline blinds in a group to trigger power cycle
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 30
+          mode: slider
+          step: 1
+
+    cooldown_seconds:
+      name: Cooldown Between Resets (seconds)
+      default: 3600
+      selector:
+        number:
+          min: 300
+          max: 21600
+          step: 60
+          unit_of_measurement: seconds
+
+    power_cycle_delay:
+      name: Delay Between OFF and ON (seconds)
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 30
+          unit_of_measurement: seconds
+
+mode: single
+
+trigger:
+  - platform: state
+    entity_id: !input blind_groups
+    to: 'off'
+    for:
+      seconds: 5
+
+variables:
+  groups: !input blind_groups
+  threshold: !input offline_threshold
+  cooldown: !input cooldown_seconds
+  delay: !input power_cycle_delay
+
+condition: []
+
+action:
+  - repeat:
+      count: "{{ groups | length }}"
+      sequence:
+        - variables:
+            current: "{{ groups[repeat.index - 1] }}"
+            blind_states: >
+              {{ expand(current.blind_entities) | selectattr('state', 'eq', 'off') | list }}
+            offline_count: "{{ blind_states | count }}"
+            last_reset_ts: "{{ as_timestamp(states(current.cooldown_tracker)) }}"
+            now_ts: "{{ now().timestamp() }}"
+            cooldown_ok: "{{ (now_ts - last_reset_ts) > cooldown }}"
+
+        - if:
+            - condition: template
+              value_template: "{{ offline_count >= threshold and cooldown_ok }}"
+          then:
+            - service: switch.turn_off
+              data:
+                entity_id: "{{ current.smart_plug }}"
+            - delay:
+                seconds: "{{ delay }}"
+            - service: switch.turn_on
+              data:
+                entity_id: "{{ current.smart_plug }}"
+
+            - service: input_datetime.set_datetime
+              data:
+                entity_id: "{{ current.cooldown_tracker }}"
+                timestamp: "{{ now().timestamp() | int }}"
+
+            - service: notify.notify
+              data:
+                title: "Blind Hub Recovery Triggered"
+                message: >
+                  {{ current.smart_plug }} was power cycled due to {{ offline_count }} unreachable blind(s) in its group.
+                  Cooldown enforced: {{ cooldown | int // 60 }} minutes.
+
+            - service: notify.mobile_app_your_device # <--- replace with my device
+              data:
+                title: "Blind Hub Auto-Recovery"
+                message: >
+                  {{ current.smart_plug }} was reset due to {{ offline_count }} offline blinds.
+                  Delay: {{ delay }}s. Cooldown: {{ cooldown | int // 60 }} min.
+
+            - service: logbook.log
+              data:
+                name: "Blind Hub Reset"
+                message: >
+                  {{ current.smart_plug }} cycled after {{ offline_count }} blinds were offline.
+                entity_id: "{{ current.smart_plug }}"
