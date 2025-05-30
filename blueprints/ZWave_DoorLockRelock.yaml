@@ -1,0 +1,121 @@
+blueprint:
+  name: Auto-Relock – Z-Wave JS locks
+  description: >
+    Relock a door X minutes after it is unlocked from the *outside*
+    (keypad / fingerprint / RF) once the door is closed.
+    Optional door sensor, battery check and tamper alert.
+  domain: automation
+  source_url: https://gist.github.com/example/relock_kwikset916.yaml
+
+  input:
+    lock_entity:
+      name: Lock entity
+      selector:
+        entity:
+          domain: lock
+    door_sensor:
+      name: Door contact sensor (optional)
+      default: ""
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: door
+    relock_delay:
+      name: Minutes to wait before relocking
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 1
+          unit_of_measurement: minutes
+    outside_event_labels:
+      name: Outside-unlock event labels
+      description: >
+        Comma-separated list of Z-Wave JS event_label strings that count
+        as *outside* unlocks.  Leave the defaults unless you know your
+        lock reports something different.
+      default: "Keypad unlock operation,RF unlock operation"
+      selector:
+        text:
+    battery_sensor:
+      name: Battery sensor (optional)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+          device_class: battery
+    low_battery_threshold:
+      name: Battery-low threshold %
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 50
+          unit_of_measurement: "%"
+    tamper_sensor:
+      name: Tamper sensor (optional)
+      default: ""
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: tamper
+    notify_target:
+      name: Notify service (e.g. mobile_app_xxx)
+      default: ""
+      selector:
+        text:
+
+mode: restart
+
+trigger:
+  - platform: event
+    event_type: zwave_js_notification
+    event_data:
+      entity_id: !input lock_entity
+      label: Access Control
+    id: zjs_event
+
+variables:
+  outside_labels: >
+    {{ [label.strip() for label in (!input outside_event_labels).split(',')] }}
+  unlock_event: "{{ trigger.event.data.event_label if trigger else '' }}"
+  door_entity: !input door_sensor
+  battery_entity: !input battery_sensor
+  tamper_entity: !input tamper_sensor
+
+condition:
+  - "{{ unlock_event in outside_labels }}"          # only outside unlocks
+  - "{{ state_attr(!input lock_entity, 'lock_state') != 'locked' }}"  # already unlocked
+
+action:
+  - if:
+      - "{{ door_entity != '' }}"
+      - "{{ states(door_entity) != 'off' }}"        # 'off' == closed for door sensors
+    then:
+      - wait_for_trigger:
+          - platform: state
+            entity_id: "{{ door_entity }}"
+            to: "off"
+        timeout: "00:05:00"
+        continue_on_timeout: false
+  - delay:
+      minutes: !input relock_delay
+  - service: lock.lock
+    target:
+      entity_id: !input lock_entity
+  - if:
+      - "{{ battery_entity != '' and states(battery_entity)|int(101) <= !input low_battery_threshold }}"
+        or "{{ tamper_entity != '' and states(tamper_entity) == 'on' }}"
+    then:
+      - service: "{{ !input notify_target }}"
+        data:
+          title: "⚠️ Door-lock attention needed"
+          message: >
+            {% if battery_entity != '' and states(battery_entity)|int <= !input low_battery_threshold %}
+              Battery {{ states(battery_entity) }} % –
+            {% endif %}
+            {% if tamper_entity != '' and states(tamper_entity) == 'on' %}
+              Tamper state active –
+            {% endif %}
+            {{ state_attr(!input lock_entity,'friendly_name') }} at {{ now().strftime('%H:%M') }}."
