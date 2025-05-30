@@ -17,7 +17,7 @@ blueprint:
       default: ""
       selector:
         entity:
-          domain: binary_sensor
+          domain: sensor
     relock_delay:
       name: Minutes to wait before relocking
       default: 2
