@@ -5,7 +5,6 @@ blueprint:
     (keypad / fingerprint / RF) once the door is closed.
     Optional door sensor, battery check and tamper alert.
   domain: automation
-  source_url: https://gist.github.com/example/relock_kwikset916.yaml
 
   input:
     lock_entity:
@@ -31,10 +30,6 @@ blueprint:
           unit_of_measurement: minutes
     outside_event_labels:
       name: Outside-unlock event labels
-      description: >
-        Comma-separated list of Z-Wave JS event_label strings that count
-        as *outside* unlocks.  Leave the defaults unless you know your
-        lock reports something different.
       default: "Keypad unlock operation,RF unlock operation"
       selector:
         text:
@@ -85,13 +80,13 @@ variables:
   tamper_entity: !input tamper_sensor
 
 condition:
-  - "{{ unlock_event in outside_labels }}"          # only outside unlocks
-  - "{{ state_attr(!input lock_entity, 'lock_state') != 'locked' }}"  # already unlocked
+  - "{{ unlock_event in outside_labels }}"
+  - "{{ states(!input lock_entity) != 'locked' }}"
 
 action:
   - if:
       - "{{ door_entity != '' }}"
-      - "{{ states(door_entity) != 'off' }}"        # 'off' == closed for door sensors
+      - "{{ states(door_entity) != 'off' }}"
     then:
       - wait_for_trigger:
           - platform: state
@@ -105,17 +100,17 @@ action:
     target:
       entity_id: !input lock_entity
   - if:
-      - "{{ battery_entity != '' and states(battery_entity)|int(101) <= !input low_battery_threshold }}"
-        or "{{ tamper_entity != '' and states(tamper_entity) == 'on' }}"
+      - "{{ (battery_entity != '' and states(battery_entity)|int(101) <= !input low_battery_threshold) or
+            (tamper_entity != '' and states(tamper_entity) == 'on') }}"
     then:
       - service: "{{ !input notify_target }}"
         data:
           title: "⚠️ Door-lock attention needed"
           message: >
             {% if battery_entity != '' and states(battery_entity)|int <= !input low_battery_threshold %}
-              Battery {{ states(battery_entity) }} % –
+              Battery {{ states(battery_entity) }} %
             {% endif %}
             {% if tamper_entity != '' and states(tamper_entity) == 'on' %}
-              Tamper state active –
+              Tamper active
             {% endif %}
-            {{ state_attr(!input lock_entity,'friendly_name') }} at {{ now().strftime('%H:%M') }}."
+            – {{ state_attr(!input lock_entity,'friendly_name') }} at {{ now().strftime('%H:%M') }}.
