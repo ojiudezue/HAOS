@@ -1,0 +1,392 @@
+alias: Revised Smart Laundry Room Control
+description: >-
+  Controls laundry room lighting based on time/lux and manages humidity-based
+  fan control with intelligent triggers and safety limits
+triggers:
+  # Motion detection
+  - entity_id: binary_sensor.rgbw_lux_motion_3rdr_wifi_matter_laundry_occupancy
+    to: "on"
+    id: motion_on
+    trigger: state
+  
+  - entity_id: binary_sensor.rgbw_lux_motion_3rdr_wifi_matter_laundry_occupancy
+    to: "off"
+    for:
+      minutes: 5
+    id: motion_off
+    trigger: state
+  
+  # Humidity monitoring
+  - entity_id: sensor.temp_humidity_3rd_zigbee_laundry_humidity
+    trigger: numeric_state
+    above: 50
+    id: humidity_high
+  
+  - entity_id: sensor.temp_humidity_3rd_zigbee_laundry_humidity
+    trigger: numeric_state
+    below: 48  # Hysteresis to prevent flapping
+    id: humidity_normal
+  
+  # Fan safety and monitoring
+  - entity_id: switch.switch_shelly2pmgen3_wifi_laundry2_sw2
+    to: "on"
+    for:
+      hours: 2
+    id: fan_max_runtime
+    trigger: state
+  
+  # Periodic humidity check while fan running
+  - trigger: time_pattern
+    minutes: "/15"
+    id: humidity_check
+  
+  # Humidity spike check (every 4 hours when fan not running)
+  - trigger: time_pattern
+    hours: "/4"
+    id: humidity_spike_check
+
+conditions: []
+
+variables:
+  # Device mappings
+  overhead_lights: switch.switch_shelly2pmgen3_wifi_laundry1_sw1
+  under_cabinet_lights: switch.switch_shelly2pmgen3_wifi_laundry1_sw2
+  closet_lights: switch.switch_shelly2pmgen3_wifi_laundry2_sw1
+  exhaust_fan: switch.switch_shelly2pmgen3_wifi_laundry2_sw2
+  night_light: light.rgbw_lux_motion_3rdr_wifi_matter_laundry
+  
+  # Current measurements
+  current_lux: >-
+    {{ states('sensor.rgbw_lux_motion_3rdr_wifi_matter_laundry_illuminance')|float(50) }}
+  current_humidity: >-
+    {{ states('sensor.temp_humidity_3rd_zigbee_laundry_humidity')|float(40) }}
+  current_hour: "{{ now().hour }}"
+  
+  # Time periods
+  is_night: "{{ current_hour >= 22 or current_hour < 7 }}"
+  is_evening: "{{ current_hour >= 20 and current_hour < 22 }}"
+  is_day: "{{ current_hour >= 7 and current_hour < 20 }}"
+  
+  # Device states
+  fan_currently_on: "{{ is_state(exhaust_fan, 'on') }}"
+  room_occupied: >-
+    {{ is_state('binary_sensor.rgbw_lux_motion_3rdr_wifi_matter_laundry_occupancy', 'on') }}
+  
+  # Humidity conditions
+  humidity_high: "{{ current_humidity > 50 }}"
+  humidity_normal: "{{ current_humidity < 48 }}"
+  
+  # Fan run time tracking (approximate)
+  fan_start_time: >-
+    {{ state_attr(exhaust_fan, 'last_changed') }}
+
+actions:
+  - choose:
+      # Motion detected - turn on appropriate lighting
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'motion_on' }}"
+        sequence:
+          - variables:
+              lights_to_activate: []
+              
+          # Choose lighting based on time period
+          - choose:
+              # Night mode (10 PM - 7 AM): Only RGBW night light
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_night }}"
+                sequence:
+                  - service: light.turn_on
+                    target:
+                      entity_id: "{{ night_light }}"
+                    data:
+                      brightness_pct: 25
+                      rgb_color: [255, 80, 20]
+                      transition: 2
+                  
+                  - variables:
+                      lights_activated: ["Night Light"]
+              
+              # Evening mode (8-10 PM): Under cabinet + RGBW
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_evening }}"
+                sequence:
+                  - service: switch.turn_on
+                    target:
+                      entity_id: "{{ under_cabinet_lights }}"
+                  
+                  - service: light.turn_on
+                    target:
+                      entity_id: "{{ night_light }}"
+                    data:
+                      brightness_pct: 40
+                      rgb_color: [255, 180, 100]
+                      transition: 1
+                  
+                  - variables:
+                      lights_activated: ["Under Cabinet", "Night Light"]
+                  
+                  # Add overhead if very dark
+                  - if:
+                      - condition: template
+                        value_template: "{{ current_lux < 10 }}"
+                    then:
+                      - service: switch.turn_on
+                        target:
+                          entity_id: "{{ overhead_lights }}"
+                      - variables:
+                          lights_activated: "{{ lights_activated + ['Overhead'] }}"
+              
+              # Day mode (7 AM - 8 PM): Lux-based lighting
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_day }}"
+                sequence:
+                  - choose:
+                      # High light (>50 lux): Under cabinet + minimal RGBW
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_lux > 50 }}"
+                        sequence:
+                          - service: switch.turn_on
+                            target:
+                              entity_id: "{{ under_cabinet_lights }}"
+                          
+                          - service: light.turn_on
+                            target:
+                              entity_id: "{{ night_light }}"
+                            data:
+                              brightness_pct: 20
+                              rgb_color: [200, 220, 255]
+                              transition: 1
+                          
+                          - variables:
+                              lights_activated: ["Under Cabinet", "Blue Accent"]
+                      
+                      # Medium light (20-50 lux): Overhead + under cabinet + RGBW
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ current_lux >= 20 and current_lux <= 50 }}"
+                        sequence:
+                          - service: switch.turn_on
+                            target:
+                              entity_id: 
+                                - "{{ overhead_lights }}"
+                                - "{{ under_cabinet_lights }}"
+                          
+                          - service: light.turn_on
+                            target:
+                              entity_id: "{{ night_light }}"
+                            data:
+                              brightness_pct: 30
+                              rgb_color: [255, 255, 255]
+                              transition: 1
+                          
+                          - variables:
+                              lights_activated: ["Overhead", "Under Cabinet", "White Light"]
+                    
+                    # Low light (<20 lux): All lights
+                    default:
+                      - service: switch.turn_on
+                        target:
+                          entity_id:
+                            - "{{ overhead_lights }}"
+                            - "{{ under_cabinet_lights }}"
+                      
+                      - service: light.turn_on
+                        target:
+                          entity_id: "{{ night_light }}"
+                        data:
+                          brightness_pct: 50
+                          rgb_color: [255, 255, 255]
+                          transition: 1
+                      
+                      - variables:
+                          lights_activated: ["All Lights (Dark)"]
+          
+          # Check humidity and trigger fan if needed
+          - if:
+              - condition: template
+                value_template: "{{ humidity_high and not fan_currently_on }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: "{{ exhaust_fan }}"
+              
+              - service: notify.madronehapushover
+                data:
+                  title: "🌡️ Laundry Fan: ON"
+                  message: "Humidity {{ current_humidity }}% detected with motion - fan started"
+                  target: PhalanxIphone15ProMax
+                  data:
+                    priority: 0
+                    sound: "intermission"
+          
+          # Notification about lighting
+          - service: notify.madronehapushover
+            data:
+              title: "💡 Laundry: Motion"
+              message: >-
+                Lights activated: {{ lights_activated | join(', ') }}
+                ({{ current_lux }} lux{% if humidity_high %}, {{ current_humidity }}% humidity{% endif %})
+              target: PhalanxIphone15ProMax
+              data:
+                priority: -1
+                sound: "none"
+
+      # Motion stopped - turn off lights
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'motion_off' }}"
+        sequence:
+          # Graceful light shutdown sequence
+          - service: light.turn_off
+            target:
+              entity_id: "{{ night_light }}"
+            data:
+              transition: 3
+          
+          - delay:
+              seconds: 2
+          
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ under_cabinet_lights }}"
+          
+          - delay:
+              seconds: 1
+          
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ overhead_lights }}"
+          
+          - delay:
+              seconds: 1
+          
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ closet_lights }}"
+          
+          # Notification
+          - service: notify.madronehapushover
+            data:
+              title: "💡 Laundry: Lights OFF"
+              message: "5-minute timeout - all lights secured"
+              target: PhalanxIphone15ProMax
+              data:
+                priority: -1
+                sound: "none"
+
+      # High humidity detected - turn on fan
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'humidity_high' }}"
+          - condition: template
+            value_template: "{{ not fan_currently_on }}"
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: "{{ exhaust_fan }}"
+          
+          - service: notify.madronehapushover
+            data:
+              title: "🌡️ Laundry Fan: Auto Start"
+              message: "Humidity spiked to {{ current_humidity }}% - fan activated automatically"
+              target: PhalanxIphone15ProMax
+              data:
+                priority: 0
+                sound: "cashregister"
+
+      # Humidity returned to normal - turn off fan
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'humidity_normal' }}"
+          - condition: template
+            value_template: "{{ fan_currently_on }}"
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ exhaust_fan }}"
+          
+          - service: notify.madronehapushover
+            data:
+              title: "🌡️ Laundry Fan: OFF"
+              message: "Humidity normalized to {{ current_humidity }}% - fan stopped"
+              target: PhalanxIphone15ProMax
+              data:
+                priority: 0
+                sound: "magic"
+
+      # Fan safety shutoff (2 hours maximum)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'fan_max_runtime' }}"
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: "{{ exhaust_fan }}"
+          
+          - service: notify.madronehapushover
+            data:
+              title: "⚠️ Laundry Fan: Safety Stop"
+              message: >-
+                Fan ran 2 hours continuously - auto-stopped for safety
+                Current humidity: {{ current_humidity }}%
+                Next trigger: motion detection if humidity still high
+              target: PhalanxIphone15ProMax
+              data:
+                priority: 1
+                sound: "siren"
+
+      # Periodic humidity check (every 15 minutes while fan running)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'humidity_check' }}"
+          - condition: template
+            value_template: "{{ fan_currently_on }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ humidity_normal }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: "{{ exhaust_fan }}"
+              
+              - service: notify.madronehapushover
+                data:
+                  title: "🌡️ Laundry Fan: Periodic Check"
+                  message: "Humidity dropped to {{ current_humidity }}% - fan stopped after monitoring"
+                  target: PhalanxIphone15ProMax
+                  data:
+                    priority: 0
+                    sound: "magic"
+
+      # Humidity spike check (every 4 hours when fan not running)
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'humidity_spike_check' }}"
+          - condition: template
+            value_template: "{{ not fan_currently_on }}"
+          - condition: template
+            value_template: "{{ humidity_high }}"
+          - condition: template
+            value_template: "{{ not room_occupied }}"
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: "{{ exhaust_fan }}"
+          
+          - service: notify.madronehapushover
+            data:
+              title: "🌡️ Laundry Fan: Scheduled Check"
+              message: "4-hour check found {{ current_humidity }}% humidity - fan restarted (room empty)"
+              target: PhalanxIphone15ProMax
+              data:
+                priority: 0
+                sound: "cashregister"
+
+mode: restart
+max_exceeded: silent
