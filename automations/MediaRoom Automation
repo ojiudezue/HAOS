@@ -1,0 +1,399 @@
+alias: Media Room Smart Control
+description: >-
+  Complete media room automation with occupancy detection, media-triggered
+  scenes, time-based lighting, and coordinated blinds/fan control
+triggers:
+  # Occupancy detection
+  - entity_id: sensor.mmwave_motion_lux_meross_wifi_mediaroom_presence
+    trigger: numeric_state
+    above: 1
+    id: room_occupied
+  
+  - entity_id: sensor.mmwave_motion_lux_meross_wifi_mediaroom_presence
+    trigger: numeric_state
+    below: 1
+    for:
+      minutes: 5
+    id: room_empty
+  
+  # Media equipment triggers
+  - entity_id: media_player.madronels12000
+    to: "on"
+    trigger: state
+    id: projector_on
+  
+  - entity_id: media_player.madronels12000
+    to: "off"
+    trigger: state
+    id: projector_off
+  
+  # Extended empty check for projector safety
+  - entity_id: sensor.mmwave_motion_lux_meross_wifi_mediaroom_presence
+    trigger: numeric_state
+    below: 1
+    for:
+      minutes: 90
+    id: room_extended_empty
+  
+  # 1AM energy backup check
+  - trigger: time
+    at: "01:00:00"
+    id: energy_backup_check
+
+conditions: []
+
+variables:
+  # Current measurements
+  current_lux: >-
+    {{ states('sensor.mmwave_motion_lux_matter_wifi_mediaroom_illuminance')|float(50) }}
+  current_hour: "{{ now().hour }}"
+  outside_temp: >-
+    {{ states('sensor.phalanxmadrone_temperature')|float(75) }}
+  
+  # Occupancy validation (multiple sensors for reliability)
+  mmwave_count: >-
+    {{ states('sensor.mmwave_motion_lux_meross_wifi_mediaroom_presence')|int(0) }}
+  matter_occupancy: >-
+    {{ is_state('binary_sensor.mmwave_motion_lux_matter_wifi_mediaroom_occupancy', 'on') }}
+  motion_detected: >-
+    {{ is_state('binary_sensor.mmwave_motion_lux_meross_wifi_mediaroom_sensor_presence_motion', 'on') }}
+  
+  # Definitive occupancy (requires multiple confirmations)
+  room_occupied: >-
+    {{ mmwave_count > 1 or (mmwave_count > 0 and matter_occupancy) }}
+  
+  # Time-based lighting settings
+  is_night: "{{ current_hour >= 22 or current_hour < 7 }}"
+  is_evening: "{{ current_hour >= 18 and current_hour < 22 }}"
+  is_early_morning: "{{ current_hour >= 5 and current_hour < 8 }}"
+  
+  # Lighting brightness based on time and ambient light
+  sconce_brightness: >-
+    {% if is_night %}
+      20  # Very dim for night
+    {% elif is_evening %}
+      60  # Moderate for evening
+    {% elif current_lux < 30 %}
+      80  # Bright if dark during day
+    {% elif current_lux < 60 %}
+      60  # Medium if moderately lit
+    {% else %}
+      40  # Lower if naturally bright
+    {% endif %}
+  
+  # Fan speed based on temperature and AC state
+  optimal_fan_speed: >-
+    {% if outside_temp > 85 %}
+      83  # Speed 5/6 for very hot days
+    {% elif outside_temp > 75 %}
+      67  # Speed 4/6 for warm days
+    {% else %}
+      50  # Speed 3/6 for moderate temps
+    {% endif %}
+  
+  # Current device states
+  projector_on: "{{ is_state('media_player.madronels12000', 'on') }}"
+  denon_on: "{{ is_state('media_player.home_theater', 'on') }}"
+  current_fan_speed: >-
+    {{ state_attr('fan.media_room_ceiling_fan', 'percentage')|int(0) }}
+
+actions:
+  - choose:
+      # Room entry - turn on lights and fan
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'room_occupied' }}"
+        sequence:
+          # Turn on sconces with time-appropriate brightness
+          - service: light.turn_on
+            target:
+              entity_id: light.dimmer_d2lv_thread_mediaroom
+            data:
+              brightness_pct: "{{ sconce_brightness }}"
+              transition: 2
+          
+          # Turn on LED strip only if projector not active
+          - if:
+              - condition: template
+                value_template: "{{ not projector_on }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.switch_shelly_wifi_mediaroom_sw1
+          
+          # Turn on fan switch first, then set speed
+          - service: switch.turn_on
+            target:
+              entity_id: switch.switch_shelly_wifi_mediaroom_sw0
+          
+          - delay:
+              seconds: 4
+          
+          - service: fan.set_percentage
+            target:
+              entity_id: fan.media_room_ceiling_fan
+            data:
+              percentage: "{{ optimal_fan_speed }}"
+          
+          # Open blinds during day, keep closed at night
+          - if:
+              - condition: template
+                value_template: "{{ not is_night and not projector_on }}"
+            then:
+              - service: cover.open_cover
+                target:
+                  entity_id:
+                    - cover.media_left
+                    - cover.media_center
+                    - cover.media_right
+          
+          # Notification
+          - service: notify.madronehapushover
+            data:
+              title: "Media Room: Occupied"
+              message: >-
+                Lights on ({{ sconce_brightness }}%), fan at {{ optimal_fan_speed }}%
+                {% if projector_on %} - Movie mode active{% endif %}
+              target: PhalanxIphone15ProMax
+              data:
+                priority: -1
+                sound: "none"
+
+      # Media start (projector on) - movie mode
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'projector_on' }}"
+        sequence:
+          # 30-second dimming sequence
+          - service: light.turn_on
+            target:
+              entity_id: light.dimmer_d2lv_thread_mediaroom
+            data:
+              brightness_pct: 50
+              transition: 10
+          
+          - delay:
+              seconds: 10
+          
+          - service: light.turn_on
+            target:
+              entity_id: light.dimmer_d2lv_thread_mediaroom
+            data:
+              brightness_pct: 20
+              transition: 10
+          
+          - delay:
+              seconds: 10
+          
+          - service: light.turn_off
+            target:
+              entity_id: light.dimmer_d2lv_thread_mediaroom
+            data:
+              transition: 10
+          
+          # Turn off LED strip
+          - service: switch.turn_off
+            target:
+              entity_id: switch.switch_shelly_wifi_mediaroom_sw1
+          
+          # Close all blinds for optimal viewing
+          - service: cover.close_cover
+            target:
+              entity_id:
+                - cover.media_left
+                - cover.media_center
+                - cover.media_right
+          
+          # Reduce fan speed for noise control (max 70%)
+          - if:
+              - condition: template
+                value_template: "{{ current_fan_speed > 70 }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.switch_shelly_wifi_mediaroom_sw0
+              
+              - delay:
+                  seconds: 4
+              
+              - service: fan.set_percentage
+                target:
+                  entity_id: fan.media_room_ceiling_fan
+                data:
+                  percentage: 67  # Speed 4/6
+          
+          # Notification
+          - service: notify.madronehapushover
+            data:
+              title: "Media Room: Movie Mode"
+              message: "Projector started - lights dimming, blinds closing, fan adjusted"
+              target: PhalanxIphone15ProMax
+              data:
+                priority: 0
+                sound: "intermission"
+
+      # Media stop (projector off) - restore lighting
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'projector_off' }}"
+        sequence:
+          # Only restore if room is still occupied
+          - if:
+              - condition: template
+                value_template: "{{ room_occupied }}"
+            then:
+              # Restore sconces
+              - service: light.turn_on
+                target:
+                  entity_id: light.dimmer_d2lv_thread_mediaroom
+                data:
+                  brightness_pct: "{{ sconce_brightness }}"
+                  transition: 3
+              
+              # Turn on LED strip
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.switch_shelly_wifi_mediaroom_sw1
+              
+              # Open blinds if daytime
+              - if:
+                  - condition: template
+                    value_template: "{{ not is_night }}"
+                then:
+                  - service: cover.open_cover
+                    target:
+                      entity_id:
+                        - cover.media_left
+                        - cover.media_center
+                        - cover.media_right
+              
+              # Restore fan to optimal speed
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.switch_shelly_wifi_mediaroom_sw0
+              
+              - delay:
+                  seconds: 4
+              
+              - service: fan.set_percentage
+                target:
+                  entity_id: fan.media_room_ceiling_fan
+                data:
+                  percentage: "{{ optimal_fan_speed }}"
+          
+          # Notification
+          - service: notify.madronehapushover
+            data:
+              title: "Media Room: Normal Mode"
+              message: "Projector stopped - lighting restored"
+              target: PhalanxIphone15ProMax
+              data:
+                priority: -1
+                sound: "none"
+
+      # Room exit (5 minutes) - turn off lights and fan
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'room_empty' }}"
+        sequence:
+          # Turn off all lighting
+          - service: light.turn_off
+            target:
+              entity_id: light.dimmer_d2lv_thread_mediaroom
+            data:
+              transition: 3
+          
+          - service: switch.turn_off
+            target:
+              entity_id: switch.switch_shelly_wifi_mediaroom_sw1
+          
+          # Turn off fan
+          - service: fan.turn_off
+            target:
+              entity_id: fan.media_room_ceiling_fan
+          
+          # Close blinds for privacy/energy
+          - service: cover.close_cover
+            target:
+              entity_id:
+                - cover.media_left
+                - cover.media_center
+                - cover.media_right
+          
+          # Notification
+          - service: notify.madronehapushover
+            data:
+              title: "Media Room: Empty"
+              message: "Room vacant for 5min - all devices off, blinds closed"
+              target: PhalanxIphone15ProMax
+              data:
+                priority: -1
+                sound: "none"
+
+      # Extended empty (90 minutes) - safe projector shutdown
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'room_extended_empty' }}"
+          - condition: template
+            value_template: "{{ not denon_on }}"  # Only if Denon also off
+          - condition: template
+            value_template: "{{ not room_occupied }}"  # Double-check occupancy
+        sequence:
+          # Turn off projector (safe shutdown)
+          - service: media_player.turn_off
+            target:
+              entity_id: media_player.madronels12000
+          
+          # Notification
+          - service: notify.madronehapushover
+            data:
+              title: "Media Room: Safety Shutdown"
+              message: "Projector turned off after 90min vacancy (Denon also off)"
+              target: PhalanxIphone15ProMax
+              data:
+                priority: 1
+                sound: "cashregister"
+
+      # 1AM energy backup check
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'energy_backup_check' }}"
+        sequence:
+          # Only act if room is definitely empty
+          - if:
+              - condition: template
+                value_template: "{{ not room_occupied }}"
+            then:
+              # Turn off all devices
+              - service: light.turn_off
+                target:
+                  entity_id: light.dimmer_d2lv_thread_mediaroom
+              
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.switch_shelly_wifi_mediaroom_sw1
+              
+              - service: fan.turn_off
+                target:
+                  entity_id: fan.media_room_ceiling_fan
+              
+              # Close blinds
+              - service: cover.close_cover
+                target:
+                  entity_id:
+                    - cover.media_left
+                    - cover.media_center
+                    - cover.media_right
+              
+              # Notification
+              - service: notify.madronehapushover
+                data:
+                  title: "1AM Energy Check: Media Room"
+                  message: "Backup shutdown - lights, fan, blinds secured (no occupancy)"
+                  target: PhalanxIphone15ProMax
+                  data:
+                    priority: 0
+                    sound: "echo"
+
+mode: restart
+max_exceeded: silent
