@@ -1,0 +1,260 @@
+blueprint:
+  name: 1AM Whole House Energy Check
+  description: >-
+    Automated energy conservation check at 1AM. Validates room occupancy by
+    pausing fans, restarting mmWave sensors, and turning off unused devices.
+    Room-based organization with detailed notifications.
+  domain: automation
+  input:
+    rooms:
+      name: Room Configuration
+      description: Configure devices and sensors for each room
+      default: {}
+      selector:
+        object:
+    notification_service:
+      name: Notification Service
+      description: Pushover or other notification service
+      default: notify.madronehapushover
+      selector:
+        text:
+    notification_target:
+      name: Notification Target
+      description: Device target for notifications
+      default: PhalanxIphone15ProMax
+      selector:
+        text:
+    check_time:
+      name: Check Time
+      description: Time to perform energy check
+      default: "01:00:00"
+      selector:
+        time:
+
+variables:
+  rooms_config: !input rooms
+  # Example room configuration:
+  # media_room:
+  #   name: "Media Room"
+  #   lights: 
+  #     - light.dimmer_d2lv_thread_mediaroom
+  #     - switch.switch_shelly_wifi_mediaroom_sw0
+  #   fans: 
+  #     - fan.media_room_ceiling_fan
+  #   blinds:
+  #     - cover.media_left
+  #     - cover.media_center
+  #     - cover.media_right
+  #   occupancy_sensors: 
+  #     - sensor.mmwave_motion_lux_meross_wifi_mediaroom_presence
+  #   mmwave_sensors: 
+  #     - sensor.mmwave_motion_lux_meross_wifi_mediaroom_presence
+  #   motion_sensors:
+  #     - binary_sensor.mmwave_motion_lux_meross_wifi_mediaroom_sensor_presence_motion
+
+trigger:
+  - platform: time
+    at: !input check_time
+
+condition: []
+
+action:
+  - repeat:
+      for_each: "{{ rooms_config.keys() | list }}"
+      sequence:
+        - variables:
+            room_key: "{{ repeat.item }}"
+            room_config: "{{ rooms_config[room_key] }}"
+            room_name: "{{ room_config.get('name', room_key.replace('_', ' ').title()) }}"
+            
+            # Device lists
+            room_lights: "{{ room_config.get('lights', []) }}"
+            room_fans: "{{ room_config.get('fans', []) }}"
+            room_blinds: "{{ room_config.get('blinds', []) }}"
+            
+            # Sensor lists
+            occupancy_sensors: "{{ room_config.get('occupancy_sensors', []) }}"
+            mmwave_sensors: "{{ room_config.get('mmwave_sensors', []) }}"
+            motion_sensors: "{{ room_config.get('motion_sensors', []) }}"
+        
+        # Step 1: Store current fan states and pause fans
+        - variables:
+            fan_states: >-
+              {% set ns = namespace(states={}) %}
+              {% for fan in room_fans %}
+                {% if states(fan) == 'on' %}
+                  {% set fan_speed = state_attr(fan, 'percentage') | int(0) %}
+                  {% set ns.states = dict(ns.states, **{fan: fan_speed}) %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.states }}
+        
+        - if:
+            - condition: template
+              value_template: "{{ room_fans | length > 0 }}"
+          then:
+            - service: fan.turn_off
+              target:
+                entity_id: "{{ room_fans }}"
+        
+        # Step 2: Restart mmWave sensors for clean readings
+        - if:
+            - condition: template
+              value_template: "{{ mmwave_sensors | length > 0 }}"
+          then:
+            # Turn off mmWave sensors
+            - repeat:
+                for_each: "{{ mmwave_sensors }}"
+                sequence:
+                  - service: homeassistant.turn_off
+                    target:
+                      entity_id: "{{ repeat.item }}"
+            
+            - delay:
+                seconds: 5
+            
+            # Turn on mmWave sensors
+            - repeat:
+                for_each: "{{ mmwave_sensors }}"
+                sequence:
+                  - service: homeassistant.turn_on
+                    target:
+                      entity_id: "{{ repeat.item }}"
+        
+        # Step 3: Wait for sensor stabilization
+        - delay:
+            seconds: 30
+        
+        # Step 4: Check occupancy across all sensors
+        - variables:
+            room_occupied: >-
+              {% set ns = namespace(occupied=false) %}
+              
+              {# Check mmWave count sensors #}
+              {% for sensor in occupancy_sensors %}
+                {% if 'mmwave' in sensor and states(sensor) | int(0) > 1 %}
+                  {% set ns.occupied = true %}
+                {% elif states(sensor) == 'on' %}
+                  {% set ns.occupied = true %}
+                {% endif %}
+              {% endfor %}
+              
+              {# Check motion sensors #}
+              {% for sensor in motion_sensors %}
+                {% if states(sensor) == 'on' %}
+                  {% set ns.occupied = true %}
+                {% endif %}
+              {% endfor %}
+              
+              {{ ns.occupied }}
+        
+        # Step 5: Turn off devices if room is empty
+        - if:
+            - condition: template
+              value_template: "{{ not room_occupied }}"
+          then:
+            - variables:
+                devices_turned_off: >-
+                  {% set ns = namespace(devices=[]) %}
+                  
+                  {# Check and list lights to turn off #}
+                  {% for light in room_lights %}
+                    {% if states(light) == 'on' %}
+                      {% set ns.devices = ns.devices + [light.split('.')[1].replace('_', ' ').title()] %}
+                    {% endif %}
+                  {% endfor %}
+                  
+                  {# Check and list fans (already off, but count for reporting) #}
+                  {% for fan in room_fans %}
+                    {% if fan in fan_states %}
+                      {% set ns.devices = ns.devices + [fan.split('.')[1].replace('_', ' ').title() + ' Fan'] %}
+                    {% endif %}
+                  {% endfor %}
+                  
+                  {# Check and list blinds to close #}
+                  {% for blind in room_blinds %}
+                    {% if not is_state(blind, 'closed') %}
+                      {% set ns.devices = ns.devices + [blind.split('.')[1].replace('_', ' ').title() + ' Blinds'] %}
+                    {% endif %}
+                  {% endfor %}
+                  
+                  {{ ns.devices }}
+            
+            # Turn off lights
+            - if:
+                - condition: template
+                  value_template: "{{ room_lights | length > 0 }}"
+              then:
+                - service: homeassistant.turn_off
+                  target:
+                    entity_id: "{{ room_lights }}"
+            
+            # Close blinds
+            - if:
+                - condition: template
+                  value_template: "{{ room_blinds | length > 0 }}"
+              then:
+                - service: cover.close_cover
+                  target:
+                    entity_id: "{{ room_blinds }}"
+            
+            # Send notification about actions taken
+            - if:
+                - condition: template
+                  value_template: "{{ devices_turned_off | length > 0 }}"
+              then:
+                - service: !input notification_service
+                  data:
+                    title: "1AM Energy Check: {{ room_name }}"
+                    message: >-
+                      🔋 Energy saved - turned off {{ devices_turned_off | length }} device(s):
+                      {{ devices_turned_off | join(', ') }}
+                      
+                      ✅ No occupancy detected after sensor refresh
+                    target: !input notification_target
+                    data:
+                      priority: 0
+                      sound: "echo"
+          
+          # Room is occupied - restore fans and notify
+          else:
+            # Restore fan states
+            - repeat:
+                for_each: "{{ fan_states.keys() | list }}"
+                sequence:
+                  - service: fan.set_percentage
+                    target:
+                      entity_id: "{{ repeat.item }}"
+                    data:
+                      percentage: "{{ fan_states[repeat.item] }}"
+            
+            # Notification about occupied room
+            - service: !input notification_service
+              data:
+                title: "1AM Energy Check: {{ room_name }}"
+                message: >-
+                  👤 Room occupied - no changes made
+                  
+                  🔄 Sensors refreshed, fans restored
+                target: !input notification_target
+                data:
+                  priority: -1
+                  sound: "none"
+        
+        # If room was determined empty, fans are already off
+        # If room was occupied, restore fan states
+        - if:
+            - condition: template
+              value_template: "{{ room_occupied and fan_states | length > 0 }}"
+          then:
+            - repeat:
+                for_each: "{{ fan_states.keys() | list }}"
+                sequence:
+                  - service: fan.set_percentage
+                    target:
+                      entity_id: "{{ repeat.item }}"
+                    data:
+                      percentage: "{{ fan_states[repeat.item] }}"
+
+mode: single
+max_exceeded: silent
