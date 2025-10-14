@@ -1,0 +1,553 @@
+blueprint:
+  name: Universal Room Energy & Comfort Control v1.0
+  description: >
+    Comprehensive room automation for energy savings and comfort. Supports bedrooms, closets,
+    bathrooms, media rooms, and utility spaces with occupancy detection, adaptive lighting,
+    fan control, HVAC coordination, and sleep protection.
+  domain: automation
+  
+  input:
+    # ==================== ROOM SETUP ====================
+    
+    room_name:
+      name: Room Name
+      description: Display name for notifications
+      selector:
+        text:
+    
+    room_type:
+      name: Room Type
+      description: Sets optimal defaults
+      default: generic
+      selector:
+        select:
+          options:
+            - label: Bedroom
+              value: bedroom
+            - label: Closet
+              value: closet
+            - label: Bathroom
+              value: bathroom
+            - label: Media Room
+              value: media_room
+            - label: Utility Room
+              value: utility
+            - label: Generic Room
+              value: generic
+    
+    presence_sensors:
+      name: Presence Sensors (mmWave)
+      description: Sustained presence detection
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: binary_sensor
+    
+    motion_sensors:
+      name: Motion Sensors (PIR)
+      description: Movement detection
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: binary_sensor
+    
+    phone_tracker:
+      name: Phone Tracker (Optional)
+      description: Home/away backup only
+      default:
+      selector:
+        entity:
+          filter:
+            domain: device_tracker
+    
+    lights:
+      name: Lights
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: [light, switch]
+    
+    fans:
+      name: Fans
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            domain: fan
+    
+    temperature_sensor:
+      name: Temperature Sensor
+      selector:
+        entity:
+          filter:
+            domain: sensor
+            device_class: temperature
+    
+    humidity_sensor:
+      name: Humidity Sensor (Optional)
+      default:
+      selector:
+        entity:
+          filter:
+            domain: sensor
+            device_class: humidity
+    
+    hvac_climate:
+      name: HVAC Climate (Optional)
+      default:
+      selector:
+        entity:
+          filter:
+            domain: climate
+    
+    coordinate_with_hvac:
+      name: Coordinate with HVAC
+      default: true
+      selector:
+        boolean:
+    
+    # ==================== BEHAVIORS ====================
+    
+    entry_light_action:
+      name: Lights on Entry
+      default: none
+      selector:
+        select:
+          options:
+            - label: None
+              value: none
+            - label: Turn On
+              value: on
+    
+    entry_fan_action:
+      name: Fan on Entry
+      default: auto_hot_days
+      selector:
+        select:
+          options:
+            - label: None
+              value: none
+            - label: Always On
+              value: always_on
+            - label: Auto Hot Days
+              value: auto_hot_days
+    
+    timeout_duration:
+      name: Absence Timeout (minutes)
+      default: 15
+      selector:
+        number:
+          min: 1
+          max: 60
+    
+    exit_light_action:
+      name: Lights on Exit
+      default: turn_off
+      selector:
+        select:
+          options:
+            - label: Turn Off
+              value: turn_off
+            - label: Leave On
+              value: leave_on
+    
+    exit_fan_action:
+      name: Fan on Exit
+      default: turn_off
+      selector:
+        select:
+          options:
+            - label: Turn Off
+              value: turn_off
+            - label: Leave On
+              value: leave_on
+    
+    energy_saving_enabled:
+      name: Energy Saving
+      default: true
+      selector:
+        boolean:
+    
+    sleep_protection_enabled:
+      name: Sleep Protection
+      default: true
+      selector:
+        boolean:
+    
+    sleep_hours_start:
+      name: Sleep Start Hour
+      default: 22
+      selector:
+        number:
+          min: 0
+          max: 23
+          mode: slider
+    
+    sleep_hours_end:
+      name: Sleep End Hour
+      default: 7
+      selector:
+        number:
+          min: 0
+          max: 23
+          mode: slider
+    
+    hot_day_threshold:
+      name: Hot Day Temp (°F)
+      default: 80
+      selector:
+        number:
+          min: 70
+          max: 95
+    
+    fan_speed_comfort:
+      name: Fan Speed (%)
+      default: 75
+      selector:
+        number:
+          min: 25
+          max: 100
+          step: 25
+    
+    humidity_control_enabled:
+      name: Humidity Fan Control
+      default: false
+      selector:
+        boolean:
+    
+    humidity_high_threshold:
+      name: High Humidity (%)
+      default: 50
+      selector:
+        number:
+          min: 40
+          max: 80
+    
+    humidity_normal_threshold:
+      name: Normal Humidity (%)
+      default: 48
+      selector:
+        number:
+          min: 35
+          max: 75
+    
+    # ==================== NOTIFICATIONS ====================
+    
+    notification_service:
+      name: Notification Service
+      default: notify.madronehapushover
+      selector:
+        text:
+    
+    notification_target:
+      name: Notification Target
+      default: PhalanxIphone15ProMax
+      selector:
+        text:
+    
+    notification_verbosity:
+      name: Notification Level
+      default: sparse
+      selector:
+        select:
+          options:
+            - label: Silent
+              value: silent
+            - label: Sparse
+              value: sparse
+            - label: Detailed
+              value: detailed
+
+mode: restart
+max_exceeded: silent
+
+variables:
+  room_name: !input room_name
+  room_type: !input room_type
+  presence_sensors: !input presence_sensors
+  motion_sensors: !input motion_sensors
+  phone_tracker: !input phone_tracker
+  temp_sensor: !input temperature_sensor
+  humidity_sensor: !input humidity_sensor
+  hvac_climate: !input hvac_climate
+  lights: !input lights
+  fans: !input fans
+  entry_light: !input entry_light_action
+  entry_fan: !input entry_fan_action
+  exit_light: !input exit_light_action
+  exit_fan: !input exit_fan_action
+  timeout_base: !input timeout_duration
+  energy_enabled: !input energy_saving_enabled
+  sleep_protection: !input sleep_protection_enabled
+  sleep_start: !input sleep_hours_start
+  sleep_end: !input sleep_hours_end
+  hot_temp: !input hot_day_threshold
+  fan_speed: !input fan_speed_comfort
+  hvac_coordinate: !input coordinate_with_hvac
+  humidity_enabled: !input humidity_control_enabled
+  humidity_high: !input humidity_high_threshold
+  humidity_normal: !input humidity_normal_threshold
+  notify_service: !input notification_service
+  notify_target: !input notification_target
+  notify_level: !input notification_verbosity
+  timeout_override: >-
+    {% if room_type in ['closet', 'bathroom', 'media_room', 'utility'] %}
+      5
+    {% elif room_type == 'bedroom' %}
+      15
+    {% else %}
+      {{ timeout_base }}
+    {% endif %}
+  timeout_minutes: "{{ timeout_override | int }}"
+  current_hour: "{{ now().hour }}"
+  current_temp: "{{ states(temp_sensor) | float(75) }}"
+  current_humidity: "{{ states(humidity_sensor) | float(40) if humidity_sensor else 40 }}"
+  any_presence: >-
+    {% set ns = namespace(occupied=false) %}
+    {% for sensor in presence_sensors %}
+      {% if is_state(sensor, 'on') %}
+        {% set ns.occupied = true %}
+      {% endif %}
+    {% endfor %}
+    {% for sensor in motion_sensors %}
+      {% if is_state(sensor, 'on') %}
+        {% set ns.occupied = true %}
+      {% endif %}
+    {% endfor %}
+    {% if phone_tracker and is_state(phone_tracker, 'home') %}
+      {% set ns.occupied = true %}
+    {% endif %}
+    {{ ns.occupied }}
+  phone_present: "{{ phone_tracker and is_state(phone_tracker, 'home') }}"
+  hvac_action: "{{ state_attr(hvac_climate, 'hvac_action') if hvac_climate else 'idle' }}"
+  hvac_cooling: "{{ hvac_action == 'cooling' }}"
+  is_sleep_hours: >-
+    {% if sleep_start > sleep_end %}
+      {{ current_hour >= sleep_start or current_hour < sleep_end }}
+    {% else %}
+      {{ current_hour >= sleep_start and current_hour < sleep_end }}
+    {% endif %}
+  is_hot_day: "{{ current_temp > hot_temp }}"
+  is_high_humidity: "{{ current_humidity > humidity_high }}"
+  is_normal_humidity: "{{ current_humidity < humidity_normal }}"
+  any_lights_on: >-
+    {% set ns = namespace(on=false) %}
+    {% for light in lights %}
+      {% if is_state(light, 'on') %}
+        {% set ns.on = true %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.on }}
+  any_fans_on: >-
+    {% set ns = namespace(on=false) %}
+    {% for fan in fans %}
+      {% if is_state(fan, 'on') %}
+        {% set ns.on = true %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.on }}
+
+trigger:
+  - platform: state
+    entity_id: !input presence_sensors
+    to: "on"
+    id: presence_on
+  - platform: state
+    entity_id: !input motion_sensors
+    to: "on"
+    id: motion_on
+  - platform: state
+    entity_id: !input presence_sensors
+    to: "off"
+    for:
+      minutes: "{{ timeout_minutes }}"
+    id: presence_off
+  - platform: state
+    entity_id: !input motion_sensors
+    to: "off"
+    for:
+      minutes: "{{ timeout_minutes }}"
+    id: motion_off
+  - platform: numeric_state
+    entity_id: !input humidity_sensor
+    above: !input humidity_high_threshold
+    id: humidity_high
+  - platform: numeric_state
+    entity_id: !input humidity_sensor
+    below: !input humidity_normal_threshold
+    id: humidity_normal
+
+condition: []
+
+action:
+  - choose:
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: presence_on
+              - condition: trigger
+                id: motion_on
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ entry_light == 'on' and lights | length > 0 }}"
+                then:
+                  - service: homeassistant.turn_on
+                    target:
+                      entity_id: "{{ lights }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ entry_fan == 'auto_hot_days' and is_hot_day and (not hvac_cooling or not hvac_coordinate) and fans | length > 0 and not any_fans_on }}"
+                then:
+                  - service: fan.turn_on
+                    target:
+                      entity_id: "{{ fans }}"
+                  - service: fan.set_percentage
+                    target:
+                      entity_id: "{{ fans }}"
+                    data:
+                      percentage: "{{ fan_speed }}"
+                  - condition: template
+                    value_template: "{{ notify_level != 'silent' }}"
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "🌡️ {{ room_name }}: Fan ON"
+                      message: "Hot day ({{ current_temp }}°F) - fan started"
+                      target: "{{ notify_target }}"
+                      data:
+                        priority: -1
+                        sound: "none"
+              - conditions:
+                  - condition: template
+                    value_template: "{{ entry_fan == 'always_on' and fans | length > 0 and not any_fans_on }}"
+                then:
+                  - service: fan.turn_on
+                    target:
+                      entity_id: "{{ fans }}"
+                  - service: fan.set_percentage
+                    target:
+                      entity_id: "{{ fans }}"
+                    data:
+                      percentage: "{{ fan_speed }}"
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: presence_off
+              - condition: trigger
+                id: motion_off
+          - condition: template
+            value_template: "{{ not any_presence and energy_enabled }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ phone_present }}"
+                then:
+                  - condition: template
+                    value_template: "{{ notify_level == 'detailed' }}"
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "📱 {{ room_name }}: Phone Present"
+                      message: "Sensors show absence but phone home"
+                      target: "{{ notify_target }}"
+                      data:
+                        priority: 0
+                        sound: "none"
+                  - stop: "Phone present"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ sleep_protection and is_sleep_hours and room_type == 'bedroom' }}"
+                then:
+                  - condition: template
+                    value_template: "{{ (any_lights_on or any_fans_on) and notify_level != 'silent' }}"
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "😴 {{ room_name }}: Sleep Protection"
+                      message: "Would shutoff but sleep hours active"
+                      target: "{{ notify_target }}"
+                      data:
+                        priority: 0
+                        sound: "none"
+                  - stop: "Sleep protection"
+          - variables:
+              devices_off: []
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ exit_light == 'turn_off' and any_lights_on }}"
+                then:
+                  - service: homeassistant.turn_off
+                    target:
+                      entity_id: "{{ lights }}"
+                  - variables:
+                      devices_off: "{{ devices_off + ['Lights'] }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ exit_fan == 'turn_off' and any_fans_on and not (humidity_enabled and is_high_humidity) }}"
+                then:
+                  - service: fan.turn_off
+                    target:
+                      entity_id: "{{ fans }}"
+                  - variables:
+                      devices_off: "{{ devices_off + ['Fans'] }}"
+          - condition: template
+            value_template: "{{ devices_off | length > 0 and notify_level != 'silent' }}"
+          - service: "{{ notify_service }}"
+            data:
+              title: "💡 {{ room_name }}: Auto-Off"
+              message: "{{ timeout_minutes }}min absence - off: {{ devices_off | join(', ') }}"
+              target: "{{ notify_target }}"
+              data:
+                priority: 0
+                sound: "magic"
+      - conditions:
+          - condition: trigger
+            id: humidity_high
+          - condition: template
+            value_template: "{{ humidity_enabled and fans | length > 0 and not any_fans_on }}"
+        sequence:
+          - service: fan.turn_on
+            target:
+              entity_id: "{{ fans }}"
+          - condition: template
+            value_template: "{{ notify_level != 'silent' }}"
+          - service: "{{ notify_service }}"
+            data:
+              title: "🌡️ {{ room_name }}: Humidity Fan"
+              message: "{{ current_humidity }}% - fan activated"
+              target: "{{ notify_target }}"
+              data:
+                priority: 0
+                sound: "cashregister"
+      - conditions:
+          - condition: trigger
+            id: humidity_normal
+          - condition: template
+            value_template: "{{ humidity_enabled and any_fans_on }}"
+        sequence:
+          - service: fan.turn_off
+            target:
+              entity_id: "{{ fans }}"
+          - condition: template
+            value_template: "{{ notify_level != 'silent' }}"
+          - service: "{{ notify_service }}"
+            data:
+              title: "🌡️ {{ room_name }}: Humidity Normal"
+              message: "{{ current_humidity }}% - fan off"
+              target: "{{ notify_target }}"
+              data:
+                priority: 0
+                sound: "magic"
