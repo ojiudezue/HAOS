@@ -400,7 +400,7 @@ action:
               - conditions:
                   - condition: template
                     value_template: "{{ entry_light == 'turn_on' and lights | length > 0 }}"
-                then:
+                sequence:
                   - service: homeassistant.turn_on
                     target:
                       entity_id: "{{ lights }}"
@@ -408,7 +408,7 @@ action:
               - conditions:
                   - condition: template
                     value_template: "{{ entry_fan == 'auto_hot_days' and is_hot_day and (not hvac_cooling or not hvac_coordinate) and fans | length > 0 and not any_fans_on }}"
-                then:
+                sequence:
                   - service: fan.turn_on
                     target:
                       entity_id: "{{ fans }}"
@@ -430,7 +430,7 @@ action:
               - conditions:
                   - condition: template
                     value_template: "{{ entry_fan == 'always_on' and fans | length > 0 and not any_fans_on }}"
-                then:
+                sequence:
                   - service: fan.turn_on
                     target:
                       entity_id: "{{ fans }}"
@@ -453,7 +453,7 @@ action:
               - conditions:
                   - condition: template
                     value_template: "{{ phone_present }}"
-                then:
+                sequence:
                   - condition: template
                     value_template: "{{ notify_level == 'detailed' }}"
                   - service: "{{ notify_service }}"
@@ -469,7 +469,7 @@ action:
               - conditions:
                   - condition: template
                     value_template: "{{ sleep_protection and is_sleep_hours and room_type == 'bedroom' }}"
-                then:
+                sequence:
                   - condition: template
                     value_template: "{{ (any_lights_on or any_fans_on) and notify_level != 'silent' }}"
                   - service: "{{ notify_service }}"
@@ -487,7 +487,7 @@ action:
               - conditions:
                   - condition: template
                     value_template: "{{ exit_light == 'turn_off' and any_lights_on }}"
-                then:
+                sequence:
                   - service: homeassistant.turn_off
                     target:
                       entity_id: "{{ lights }}"
@@ -497,7 +497,7 @@ action:
               - conditions:
                   - condition: template
                     value_template: "{{ exit_fan == 'turn_off' and any_fans_on and not (humidity_enabled and is_high_humidity) }}"
-                then:
+                sequence:
                   - service: fan.turn_off
                     target:
                       entity_id: "{{ fans }}"
