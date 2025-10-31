@@ -117,14 +117,14 @@ blueprint:
     
     entry_light_action:
       name: Lights on Entry
-      default: none
+      default: "none"
       selector:
         select:
           options:
             - label: None
-              value: none
+              value: "none"
             - label: Turn On
-              value: on
+              value: "turn_on"
     
     entry_fan_action:
       name: Fan on Entry
@@ -133,7 +133,7 @@ blueprint:
         select:
           options:
             - label: None
-              value: none
+              value: "none"
             - label: Always On
               value: always_on
             - label: Auto Hot Days
@@ -274,11 +274,11 @@ variables:
   presence_sensors: !input presence_sensors
   motion_sensors: !input motion_sensors
   phone_tracker: !input phone_tracker
+  lights: !input lights
+  fans: !input fans
   temp_sensor: !input temperature_sensor
   humidity_sensor: !input humidity_sensor
   hvac_climate: !input hvac_climate
-  lights: !input lights
-  fans: !input fans
   entry_light: !input entry_light_action
   entry_fan: !input entry_fan_action
   exit_light: !input exit_light_action
@@ -399,7 +399,7 @@ action:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ entry_light == 'on' and lights | length > 0 }}"
+                    value_template: "{{ entry_light == 'turn_on' and lights | length > 0 }}"
                 then:
                   - service: homeassistant.turn_on
                     target:
