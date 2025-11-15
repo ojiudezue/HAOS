@@ -1,0 +1,1207 @@
+blueprint:
+  name: Universal Room Energy & Comfort Control v3.0
+  description: >
+    **MAJOR UPDATE v3.0** - Enhanced room automation with adaptive timeouts, door/window sensors,
+    smart notifications, and garage support. Organized wizard-like interface for easy configuration.
+    
+    **Perfect for:** Bedrooms, closets, bathrooms, media rooms, utility spaces, garages, and common areas.
+    
+    **New in v3.0:**
+    - 🚪 Door/window sensor support with egress detection
+    - 🚗 Garage room type with security defaults
+    - 🔌 Separate switch entity support (not just fans)
+    - 🔔 Enhanced notifications (unavailable entities, open doors/windows, temperature/humidity alerts)
+    - ⏱️ Adaptive timeout based on activity
+    - 💡 Smart light capability detection (brightness/color control)
+    - 🛡️ Room-type specific sleep protection defaults
+    - 📋 Wizard-like organization with collapsible sections
+    
+  domain: automation
+  
+  input:
+    # ==================== SECTION: BASIC SETUP ====================
+    basic_setup:
+      name: "📋 Basic Setup"
+      description: "Room identification and type"
+      collapsed: false
+      input:
+        room_name:
+          name: Room Name
+          description: Display name for notifications
+          selector:
+            text:
+        
+        room_type:
+          name: Room Type
+          description: Sets optimal defaults for timeout, sleep protection, and behaviors
+          default: generic
+          selector:
+            select:
+              options:
+                - label: Bedroom
+                  value: bedroom
+                - label: Closet
+                  value: closet
+                - label: Bathroom
+                  value: bathroom
+                - label: Media Room / Entertainment
+                  value: media_room
+                - label: Garage / Workshop
+                  value: garage
+                - label: Utility Room
+                  value: utility
+                - label: Common Area (Living/Dining)
+                  value: common_area
+                - label: Generic Room
+                  value: generic
+    
+    # ==================== SECTION: SENSORS ====================
+    sensors:
+      name: "🔍 Sensors"
+      description: "Presence, motion, environmental, and security sensors"
+      collapsed: true
+      input:
+        presence_sensors:
+          name: Presence Sensors (mmWave)
+          description: Sustained presence detection (detects still humans)
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: binary_sensor
+        
+        motion_sensors:
+          name: Motion Sensors (PIR)
+          description: Movement detection
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: binary_sensor
+        
+        phone_tracker:
+          name: Phone Tracker (Optional)
+          description: Home/away backup - prevents shutoff when phone home
+          default:
+          selector:
+            entity:
+              filter:
+                domain: device_tracker
+        
+        temperature_sensor:
+          name: Temperature Sensor
+          selector:
+            entity:
+              filter:
+                domain: sensor
+                device_class: temperature
+        
+        humidity_sensor:
+          name: Humidity Sensor (Optional)
+          description: For bathroom humidity control and alerts
+          default:
+          selector:
+            entity:
+              filter:
+                domain: sensor
+                device_class: humidity
+        
+        illuminance_sensor:
+          name: Illuminance Sensor (Optional)
+          description: Light level sensor for smart lighting decisions
+          default:
+          selector:
+            entity:
+              filter:
+                domain: sensor
+                device_class: illuminance
+        
+        door_sensor:
+          name: Door Contact Sensor (Optional)
+          description: For HVAC coordination and security
+          default:
+          selector:
+            entity:
+              filter:
+                domain: binary_sensor
+                device_class: [door, opening]
+        
+        door_type:
+          name: Door Type
+          description: Interior (room-to-room) or Egress (exterior/security)
+          default: interior
+          selector:
+            select:
+              options:
+                - label: Interior Door (room-to-room)
+                  value: interior
+                - label: Egress Door (exterior/security)
+                  value: egress
+        
+        window_sensor:
+          name: Window Contact Sensor (Optional)
+          description: For HVAC coordination and alerts
+          default:
+          selector:
+            entity:
+              filter:
+                domain: binary_sensor
+                device_class: [window, opening]
+    
+    # ==================== SECTION: DEVICES ====================
+    devices:
+      name: "🔌 Devices to Control"
+      description: "Lights, fans, switches, and climate"
+      collapsed: true
+      input:
+        lights:
+          name: Lights
+          description: All light entities in the room
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: [light, switch]
+        
+        light_capabilities:
+          name: Light Capabilities
+          description: What can these lights do?
+          default: basic
+          selector:
+            select:
+              options:
+                - label: Basic On/Off Only
+                  value: basic
+                - label: Brightness Control
+                  value: brightness
+                - label: Brightness + Color
+                  value: full
+        
+        fans:
+          name: Cooling Fans
+          description: Fans for temperature control (ceiling fans, tower fans)
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: fan
+        
+        humidity_fans:
+          name: Humidity/Exhaust Fans (Optional)
+          description: Separate fans for humidity control (bathroom exhaust)
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: fan
+        
+        switches:
+          name: Smart Switches (Optional)
+          description: Other switches to control (not lights or fans)
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                domain: switch
+        
+        hvac_climate:
+          name: HVAC Climate (Optional)
+          description: Room's HVAC zone for coordination
+          default:
+          selector:
+            entity:
+              filter:
+                domain: climate
+    
+    # ==================== SECTION: LIGHTING BEHAVIOR ====================
+    lighting_behavior:
+      name: "💡 Lighting Behavior"
+      description: "How lights should respond to entry and exit"
+      collapsed: true
+      input:
+        entry_light_action:
+          name: Lights on Entry
+          default: "none"
+          selector:
+            select:
+              options:
+                - label: None (Manual Control)
+                  value: "none"
+                - label: Turn On Always
+                  value: "turn_on"
+                - label: Smart (Only When Dark)
+                  value: "turn_on_if_dark"
+        
+        use_illuminance_for_lights:
+          name: Enable Illuminance-Based Lighting
+          description: Requires illuminance sensor
+          default: false
+          selector:
+            boolean:
+        
+        illuminance_dark_threshold:
+          name: Dark Threshold (lux)
+          description: Below this = "dark"
+          default: 20
+          selector:
+            number:
+              min: 1
+              max: 100
+              unit_of_measurement: lx
+        
+        exit_light_action:
+          name: Lights on Exit
+          default: turn_off
+          selector:
+            select:
+              options:
+                - label: Turn Off
+                  value: turn_off
+                - label: Leave On
+                  value: leave_on
+    
+    # ==================== SECTION: CLIMATE BEHAVIOR ====================
+    climate_behavior:
+      name: "🌡️ Climate Behavior"
+      description: "Temperature, humidity, and fan control"
+      collapsed: true
+      input:
+        entry_fan_action:
+          name: Cooling Fan on Entry
+          default: auto_hot_days
+          selector:
+            select:
+              options:
+                - label: None
+                  value: "none"
+                - label: Always On
+                  value: always_on
+                - label: Auto (Hot Days Only)
+                  value: auto_hot_days
+        
+        hot_day_threshold:
+          name: Hot Day Temp (°F)
+          description: Turn on fan above this temperature
+          default: 78
+          selector:
+            number:
+              min: 70
+              max: 95
+        
+        fan_speed_comfort:
+          name: Cooling Fan Speed (%)
+          default: 75
+          selector:
+            number:
+              min: 25
+              max: 100
+              step: 25
+        
+        exit_fan_action:
+          name: Cooling Fan on Exit
+          default: turn_off
+          selector:
+            select:
+              options:
+                - label: Turn Off
+                  value: turn_off
+                - label: Leave On
+                  value: leave_on
+        
+        humidity_control_enabled:
+          name: Enable Humidity Fan Control
+          description: For bathroom exhaust fans
+          default: false
+          selector:
+            boolean:
+        
+        humidity_high_threshold:
+          name: High Humidity (%)
+          description: Turn on humidity fan above this
+          default: 60
+          selector:
+            number:
+              min: 40
+              max: 80
+        
+        humidity_normal_threshold:
+          name: Normal Humidity (%)
+          description: Turn off humidity fan below this
+          default: 50
+          selector:
+            number:
+              min: 35
+              max: 75
+        
+        coordinate_with_hvac:
+          name: Coordinate with HVAC
+          description: Don't run cooling fans when AC is running
+          default: true
+          selector:
+            boolean:
+        
+        hvac_door_window_check:
+          name: HVAC Door/Window Efficiency
+          description: Alert if HVAC running with door/window open
+          default: true
+          selector:
+            boolean:
+    
+    # ==================== SECTION: TIMING & TIMEOUTS ====================
+    timing:
+      name: "⏱️ Timing & Timeouts"
+      description: "How long to wait before turning things off"
+      collapsed: true
+      input:
+        timeout_duration:
+          name: Base Timeout (minutes)
+          description: How long to wait after absence before shutoff
+          default: 15
+          selector:
+            number:
+              min: 1
+              max: 60
+        
+        adaptive_timeout_enabled:
+          name: Enable Adaptive Timeout
+          description: Extend timeout during active use (high humidity, door closed, etc.)
+          default: true
+          selector:
+            boolean:
+        
+        adaptive_timeout_extension:
+          name: Adaptive Extension (minutes)
+          description: How much to extend timeout when active
+          default: 15
+          selector:
+            number:
+              min: 5
+              max: 60
+    
+    # ==================== SECTION: SAFETY & PROTECTION ====================
+    safety:
+      name: "🛡️ Safety & Protection"
+      description: "Sleep protection and energy saving"
+      collapsed: true
+      input:
+        energy_saving_enabled:
+          name: Enable Energy Saving
+          description: Turn off devices on absence
+          default: true
+          selector:
+            boolean:
+        
+        sleep_protection_enabled:
+          name: Enable Sleep Protection
+          description: Prevent shutoffs during sleep hours (bedroom/common areas)
+          default: auto
+          selector:
+            select:
+              options:
+                - label: Auto (Based on Room Type)
+                  value: auto
+                - label: Always Enabled
+                  value: "true"
+                - label: Always Disabled
+                  value: "false"
+        
+        sleep_hours_start:
+          name: Sleep Start Hour
+          default: 22
+          selector:
+            number:
+              min: 0
+              max: 23
+              mode: slider
+        
+        sleep_hours_end:
+          name: Sleep End Hour
+          default: 7
+          selector:
+            number:
+              min: 0
+              max: 23
+              mode: slider
+    
+    # ==================== SECTION: NOTIFICATIONS ====================
+    notifications:
+      name: "🔔 Notifications"
+      description: "Alert settings for various conditions"
+      collapsed: true
+      input:
+        notification_service:
+          name: Notification Service
+          default: notify.mobile_app
+          selector:
+            text:
+        
+        notification_target:
+          name: Notification Target (Optional)
+          description: Leave empty for default
+          default: ""
+          selector:
+            text:
+        
+        notification_verbosity:
+          name: Standard Notification Level
+          default: sparse
+          selector:
+            select:
+              options:
+                - label: Silent (No Notifications)
+                  value: silent
+                - label: Sparse (Important Only)
+                  value: sparse
+                - label: Detailed (Everything)
+                  value: detailed
+        
+        notify_unavailable_entities:
+          name: Alert on Unavailable Entities
+          description: Notify if key entities offline > 2 hours
+          default: true
+          selector:
+            boolean:
+        
+        notify_egress_door_open:
+          name: Alert on Egress Door Open
+          description: Security alert if exterior door open too long
+          default: true
+          selector:
+            boolean:
+        
+        egress_door_timeout:
+          name: Egress Door Alert Timeout (minutes)
+          description: Alert after this many minutes
+          default: 20
+          selector:
+            number:
+              min: 5
+              max: 60
+        
+        notify_window_open:
+          name: Alert on Window Open Too Long
+          description: Energy/HVAC alert
+          default: true
+          selector:
+            boolean:
+        
+        window_open_timeout:
+          name: Window Open Alert Timeout (hours)
+          description: Alert after this many hours
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 12
+        
+        notify_high_temperature:
+          name: Alert on High Temperature
+          default: true
+          selector:
+            boolean:
+        
+        high_temperature_threshold:
+          name: High Temperature Alert (°F)
+          default: 85
+          selector:
+            number:
+              min: 75
+              max: 100
+        
+        notify_high_humidity:
+          name: Alert on High Humidity
+          description: Prolonged high humidity alert
+          default: true
+          selector:
+            boolean:
+        
+        high_humidity_prolonged_threshold:
+          name: High Humidity Alert (%)
+          description: Alert if humidity stays above this
+          default: 70
+          selector:
+            number:
+              min: 50
+              max: 90
+        
+        high_humidity_prolonged_duration:
+          name: High Humidity Duration (hours)
+          description: Alert after this many hours
+          default: 2
+          selector:
+            number:
+              min: 1
+              max: 12
+
+mode: restart
+max_exceeded: silent
+
+variables:
+  # Basic inputs
+  room_name: !input room_name
+  room_type: !input room_type
+  
+  # Sensors
+  presence_sensors: !input presence_sensors
+  motion_sensors: !input motion_sensors
+  phone_tracker: !input phone_tracker
+  temp_sensor: !input temperature_sensor
+  humidity_sensor: !input humidity_sensor
+  illuminance_sensor: !input illuminance_sensor
+  door_sensor: !input door_sensor
+  door_type: !input door_type
+  window_sensor: !input window_sensor
+  
+  # Devices
+  lights: !input lights
+  light_caps: !input light_capabilities
+  fans: !input fans
+  humidity_fans: !input humidity_fans
+  switches: !input switches
+  hvac_climate: !input hvac_climate
+  
+  # Lighting behavior
+  entry_light: !input entry_light_action
+  use_illuminance: !input use_illuminance_for_lights
+  lux_threshold: !input illuminance_dark_threshold
+  exit_light: !input exit_light_action
+  
+  # Climate behavior
+  entry_fan: !input entry_fan_action
+  hot_temp: !input hot_day_threshold
+  fan_speed: !input fan_speed_comfort
+  exit_fan: !input exit_fan_action
+  humidity_enabled: !input humidity_control_enabled
+  humidity_high: !input humidity_high_threshold
+  humidity_normal: !input humidity_normal_threshold
+  hvac_coordinate: !input coordinate_with_hvac
+  hvac_door_check: !input hvac_door_window_check
+  
+  # Timing
+  timeout_base: !input timeout_duration
+  adaptive_timeout: !input adaptive_timeout_enabled
+  adaptive_extension: !input adaptive_timeout_extension
+  
+  # Safety
+  energy_enabled: !input energy_saving_enabled
+  sleep_protection_input: !input sleep_protection_enabled
+  sleep_start: !input sleep_hours_start
+  sleep_end: !input sleep_hours_end
+  
+  # Notifications
+  notify_service: !input notification_service
+  notify_target: !input notification_target
+  notify_level: !input notification_verbosity
+  notify_unavailable: !input notify_unavailable_entities
+  notify_egress: !input notify_egress_door_open
+  egress_timeout: !input egress_door_timeout
+  notify_window: !input notify_window_open
+  window_timeout: !input window_open_timeout
+  notify_temp: !input notify_high_temperature
+  temp_alert_threshold: !input high_temperature_threshold
+  notify_humidity: !input notify_high_humidity
+  humidity_alert_threshold: !input high_humidity_prolonged_threshold
+  humidity_alert_duration: !input high_humidity_prolonged_duration
+  
+  # Computed: Sleep protection based on room type
+  sleep_protection: >-
+    {% if sleep_protection_input == 'auto' %}
+      {{ room_type in ['bedroom', 'common_area'] }}
+    {% else %}
+      {{ sleep_protection_input == 'true' }}
+    {% endif %}
+  
+  # Computed: Timeout with room-type defaults and adaptive logic
+  timeout_base_adjusted: >-
+    {% if room_type in ['closet', 'bathroom', 'utility'] %}
+      5
+    {% elif room_type == 'bedroom' %}
+      15
+    {% elif room_type in ['garage', 'media_room'] %}
+      10
+    {% else %}
+      {{ timeout_base }}
+    {% endif %}
+  
+  # Computed: Adaptive timeout extension
+  is_activity_detected: >-
+    {% set activity = false %}
+    {% if humidity_sensor and states(humidity_sensor) | float(0) > humidity_high %}
+      {% set activity = true %}
+    {% endif %}
+    {% if door_sensor and is_state(door_sensor, 'off') and door_type == 'interior' %}
+      {% set activity = true %}
+    {% endif %}
+    {{ activity }}
+  
+  timeout_minutes: >-
+    {% if adaptive_timeout and is_activity_detected %}
+      {{ (timeout_base_adjusted | int) + (adaptive_extension | int) }}
+    {% else %}
+      {{ timeout_base_adjusted | int }}
+    {% endif %}
+  
+  # Current conditions
+  current_hour: "{{ now().hour }}"
+  current_temp: "{{ states(temp_sensor) | float(75) }}"
+  current_humidity: "{{ states(humidity_sensor) | float(40) if humidity_sensor else 40 }}"
+  current_lux: "{{ states(illuminance_sensor) | float(100) if illuminance_sensor else 100 }}"
+  is_dark: "{{ current_lux < lux_threshold if illuminance_sensor and use_illuminance else true }}"
+  
+  # Presence detection
+  any_presence: >-
+    {% set ns = namespace(occupied=false) %}
+    {% for sensor in presence_sensors %}
+      {% if is_state(sensor, 'on') %}
+        {% set ns.occupied = true %}
+      {% endif %}
+    {% endfor %}
+    {% for sensor in motion_sensors %}
+      {% if is_state(sensor, 'on') %}
+        {% set ns.occupied = true %}
+      {% endif %}
+    {% endfor %}
+    {% if phone_tracker and is_state(phone_tracker, 'home') %}
+      {% set ns.occupied = true %}
+    {% endif %}
+    {{ ns.occupied }}
+  
+  phone_present: "{{ phone_tracker and is_state(phone_tracker, 'home') }}"
+  
+  # HVAC coordination
+  hvac_action: "{{ state_attr(hvac_climate, 'hvac_action') if hvac_climate else 'idle' }}"
+  hvac_cooling: "{{ hvac_action == 'cooling' }}"
+  is_hot_day: "{{ current_temp > hot_temp }}"
+  is_high_humidity: "{{ current_humidity > humidity_high }}"
+  is_normal_humidity: "{{ current_humidity < humidity_normal }}"
+  
+  # Sleep hours detection
+  is_sleep_hours: >-
+    {% if sleep_start > sleep_end %}
+      {{ current_hour >= sleep_start or current_hour < sleep_end }}
+    {% else %}
+      {{ current_hour >= sleep_start and current_hour < sleep_end }}
+    {% endif %}
+  
+  # Door/window status
+  door_open: "{{ door_sensor and is_state(door_sensor, 'on') }}"
+  window_open: "{{ window_sensor and is_state(window_sensor, 'on') }}"
+  is_egress_door: "{{ door_type == 'egress' }}"
+  
+  # Device states
+  any_lights_on: >-
+    {% set ns = namespace(on=false) %}
+    {% for light in lights %}
+      {% if is_state(light, 'on') %}
+        {% set ns.on = true %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.on }}
+  
+  any_fans_on: >-
+    {% set ns = namespace(on=false) %}
+    {% for fan in fans %}
+      {% if is_state(fan, 'on') %}
+        {% set ns.on = true %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.on }}
+  
+  any_humidity_fans_on: >-
+    {% set ns = namespace(on=false) %}
+    {% for fan in humidity_fans %}
+      {% if is_state(fan, 'on') %}
+        {% set ns.on = true %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.on }}
+  
+  any_switches_on: >-
+    {% set ns = namespace(on=false) %}
+    {% for switch in switches %}
+      {% if is_state(switch, 'on') %}
+        {% set ns.on = true %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.on }}
+
+trigger:
+  # Presence/motion detection (only if sensors configured)
+  - platform: state
+    entity_id: !input presence_sensors
+    to: "on"
+    id: presence_on
+    enabled: "{{ presence_sensors | length > 0 }}"
+  - platform: state
+    entity_id: !input motion_sensors
+    to: "on"
+    id: motion_on
+    enabled: "{{ motion_sensors | length > 0 }}"
+  
+  # Absence detection with adaptive timeout
+  - platform: state
+    entity_id: !input presence_sensors
+    to: "off"
+    for:
+      minutes: 5
+    id: presence_off
+    enabled: "{{ presence_sensors | length > 0 }}"
+  - platform: state
+    entity_id: !input motion_sensors
+    to: "off"
+    for:
+      minutes: 5
+    id: motion_off
+    enabled: "{{ motion_sensors | length > 0 }}"
+  
+  # Periodic checks (always enabled)
+  - platform: time_pattern
+    hours: "/2"
+    id: check_unavailable
+  
+  - platform: time_pattern
+    minutes: "/15"
+    id: check_hvac_efficiency
+  
+  # Time-based check for optional sensor conditions (runs every 5 min)
+  - platform: time_pattern
+    minutes: "/5"
+    id: periodic_check
+
+condition: []
+
+action:
+  - choose:
+      # ==================== ENTRY DETECTION ====================
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: presence_on
+              - condition: trigger
+                id: motion_on
+        sequence:
+          # Turn on lights based on settings
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ entry_light == 'turn_on' and lights | length > 0 }}"
+                sequence:
+                  - service: homeassistant.turn_on
+                    target:
+                      entity_id: "{{ lights }}"
+              - conditions:
+                  - condition: template
+                    value_template: "{{ entry_light == 'turn_on_if_dark' and lights | length > 0 and is_dark }}"
+                sequence:
+                  - service: homeassistant.turn_on
+                    target:
+                      entity_id: "{{ lights }}"
+                  - condition: template
+                    value_template: "{{ notify_level == 'detailed' }}"
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "💡 {{ room_name }}: Smart Light"
+                      message: "Dark ({{ current_lux }} lux) - lights on"
+                      target: "{{ notify_target }}"
+          
+          # Turn on cooling fans based on settings
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ entry_fan == 'auto_hot_days' and is_hot_day and (not hvac_cooling or not hvac_coordinate) and fans | length > 0 and not any_fans_on }}"
+                sequence:
+                  - service: fan.turn_on
+                    target:
+                      entity_id: "{{ fans }}"
+                  - service: fan.set_percentage
+                    target:
+                      entity_id: "{{ fans }}"
+                    data:
+                      percentage: "{{ fan_speed }}"
+                  - condition: template
+                    value_template: "{{ notify_level != 'silent' }}"
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "🌡️ {{ room_name }}: Fan ON"
+                      message: "Hot ({{ current_temp }}°F) - fan started"
+                      target: "{{ notify_target }}"
+              - conditions:
+                  - condition: template
+                    value_template: "{{ entry_fan == 'always_on' and fans | length > 0 and not any_fans_on }}"
+                sequence:
+                  - service: fan.turn_on
+                    target:
+                      entity_id: "{{ fans }}"
+                  - service: fan.set_percentage
+                    target:
+                      entity_id: "{{ fans }}"
+                    data:
+                      percentage: "{{ fan_speed }}"
+      
+      # ==================== EXIT DETECTION ====================
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: presence_off
+              - condition: trigger
+                id: motion_off
+          - condition: template
+            value_template: "{{ not any_presence and energy_enabled }}"
+        sequence:
+          # Check phone presence
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ phone_present }}"
+                sequence:
+                  - condition: template
+                    value_template: "{{ notify_level == 'detailed' }}"
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "📱 {{ room_name }}: Phone Home"
+                      message: "Sensors clear but phone present - keeping devices on"
+                      target: "{{ notify_target }}"
+                  - stop: "Phone present"
+          
+          # Check sleep protection
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ sleep_protection and is_sleep_hours and room_type in ['bedroom', 'common_area'] }}"
+                sequence:
+                  - condition: template
+                    value_template: "{{ (any_lights_on or any_fans_on or any_switches_on) and notify_level != 'silent' }}"
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "😴 {{ room_name }}: Sleep Protected"
+                      message: "Would shut off but sleep hours active ({{ sleep_start }}-{{ sleep_end }})"
+                      target: "{{ notify_target }}"
+                  - stop: "Sleep protection"
+          
+          # Turn off devices
+          - variables:
+              devices_off: []
+          
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ exit_light == 'turn_off' and any_lights_on }}"
+                sequence:
+                  - service: homeassistant.turn_off
+                    target:
+                      entity_id: "{{ lights }}"
+                  - variables:
+                      devices_off: "{{ devices_off + ['Lights'] }}"
+          
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ exit_fan == 'turn_off' and any_fans_on and not (humidity_enabled and is_high_humidity) }}"
+                sequence:
+                  - service: fan.turn_off
+                    target:
+                      entity_id: "{{ fans }}"
+                  - variables:
+                      devices_off: "{{ devices_off + ['Cooling Fans'] }}"
+          
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ switches | length > 0 and any_switches_on }}"
+                sequence:
+                  - service: switch.turn_off
+                    target:
+                      entity_id: "{{ switches }}"
+                  - variables:
+                      devices_off: "{{ devices_off + ['Switches'] }}"
+          
+          - condition: template
+            value_template: "{{ devices_off | length > 0 and notify_level != 'silent' }}"
+          - service: "{{ notify_service }}"
+            data:
+              title: "💡 {{ room_name }}: Auto-Off"
+              message: "{{ timeout_minutes }}min absence - Off: {{ devices_off | join(', ') }}"
+              target: "{{ notify_target }}"
+      
+      # ==================== HUMIDITY CONTROL ====================
+      - conditions:
+          - condition: trigger
+            id: humidity_high
+          - condition: template
+            value_template: "{{ humidity_enabled and humidity_fans | length > 0 and not any_humidity_fans_on }}"
+        sequence:
+          - service: fan.turn_on
+            target:
+              entity_id: "{{ humidity_fans }}"
+          - condition: template
+            value_template: "{{ notify_level != 'silent' }}"
+          - service: "{{ notify_service }}"
+            data:
+              title: "💨 {{ room_name }}: Humidity Fan"
+              message: "High humidity ({{ current_humidity }}%) - exhaust on"
+              target: "{{ notify_target }}"
+      
+      - conditions:
+          - condition: trigger
+            id: humidity_normal
+          - condition: template
+            value_template: "{{ humidity_enabled and any_humidity_fans_on }}"
+        sequence:
+          - service: fan.turn_off
+            target:
+              entity_id: "{{ humidity_fans }}"
+          - condition: template
+            value_template: "{{ notify_level != 'silent' }}"
+          - service: "{{ notify_service }}"
+            data:
+              title: "✅ {{ room_name }}: Humidity Normal"
+              message: "Humidity normalized ({{ current_humidity }}%) - exhaust off"
+              target: "{{ notify_target }}"
+      
+      # ==================== ALERTS: EGRESS DOOR ====================
+      - conditions:
+          - condition: trigger
+            id: egress_door_alert
+          - condition: template
+            value_template: "{{ notify_egress and is_egress_door }}"
+        sequence:
+          - service: "{{ notify_service }}"
+            data:
+              title: "🚨 {{ room_name }}: SECURITY ALERT"
+              message: "Egress door open {{ egress_timeout }} minutes!"
+              target: "{{ notify_target }}"
+              data:
+                priority: 1
+                sound: "siren"
+      
+      # ==================== ALERTS: WINDOW OPEN ====================
+      - conditions:
+          - condition: trigger
+            id: window_open_alert
+          - condition: template
+            value_template: "{{ notify_window }}"
+        sequence:
+          - service: "{{ notify_service }}"
+            data:
+              title: "🪟 {{ room_name }}: Window Alert"
+              message: "Window open {{ window_timeout }} hours - check HVAC efficiency"
+              target: "{{ notify_target }}"
+              data:
+                priority: 0
+      
+      # ==================== ALERTS: HIGH TEMPERATURE ====================
+      - conditions:
+          - condition: trigger
+            id: high_temp_alert
+          - condition: template
+            value_template: "{{ notify_temp }}"
+        sequence:
+          - service: "{{ notify_service }}"
+            data:
+              title: "🌡️ {{ room_name }}: High Temp"
+              message: "Temperature {{ current_temp }}°F (threshold {{ temp_alert_threshold }}°F)"
+              target: "{{ notify_target }}"
+              data:
+                priority: 0
+      
+      # ==================== ALERTS: PROLONGED HIGH HUMIDITY ====================
+      - conditions:
+          - condition: trigger
+            id: high_humidity_alert
+          - condition: template
+            value_template: "{{ notify_humidity }}"
+        sequence:
+          - service: "{{ notify_service }}"
+            data:
+              title: "💧 {{ room_name }}: Humidity Alert"
+              message: "Humidity {{ current_humidity }}% for {{ humidity_alert_duration }}hrs - check exhaust"
+              target: "{{ notify_target }}"
+              data:
+                priority: 0
+      
+      # ==================== ALERTS: UNAVAILABLE ENTITIES ====================
+      - conditions:
+          - condition: trigger
+            id: check_unavailable
+          - condition: template
+            value_template: "{{ notify_unavailable }}"
+        sequence:
+          - variables:
+              unavailable_entities: >-
+                {% set ns = namespace(unavail=[]) %}
+                {% for sensor in presence_sensors %}
+                  {% if states(sensor) == 'unavailable' %}
+                    {% set ns.unavail = ns.unavail + [state_attr(sensor, 'friendly_name') or sensor] %}
+                  {% endif %}
+                {% endfor %}
+                {% for sensor in motion_sensors %}
+                  {% if states(sensor) == 'unavailable' %}
+                    {% set ns.unavail = ns.unavail + [state_attr(sensor, 'friendly_name') or sensor] %}
+                  {% endif %}
+                {% endfor %}
+                {% if temp_sensor and states(temp_sensor) == 'unavailable' %}
+                  {% set ns.unavail = ns.unavail + [state_attr(temp_sensor, 'friendly_name') or temp_sensor] %}
+                {% endif %}
+                {% if humidity_sensor and states(humidity_sensor) == 'unavailable' %}
+                  {% set ns.unavail = ns.unavail + [state_attr(humidity_sensor, 'friendly_name') or humidity_sensor] %}
+                {% endif %}
+                {% if illuminance_sensor and states(illuminance_sensor) == 'unavailable' %}
+                  {% set ns.unavail = ns.unavail + [state_attr(illuminance_sensor, 'friendly_name') or illuminance_sensor] %}
+                {% endif %}
+                {{ ns.unavail }}
+          - condition: template
+            value_template: "{{ unavailable_entities | length > 0 }}"
+          - service: "{{ notify_service }}"
+            data:
+              title: "⚠️ {{ room_name }}: Entities Offline"
+              message: "Unavailable: {{ unavailable_entities | join(', ') }}"
+              target: "{{ notify_target }}"
+              data:
+                priority: 0
+      
+      # ==================== ALERTS: HVAC EFFICIENCY ====================
+      - conditions:
+          - condition: trigger
+            id: check_hvac_efficiency
+          - condition: template
+            value_template: "{{ hvac_door_check and hvac_climate and hvac_cooling }}"
+          - condition: or
+            conditions:
+              - condition: template
+                value_template: "{{ door_open }}"
+              - condition: template
+                value_template: "{{ window_open }}"
+        sequence:
+          - variables:
+              open_items: >-
+                {% set items = [] %}
+                {% if door_open %}
+                  {% set items = items + ['Door'] %}
+                {% endif %}
+                {% if window_open %}
+                  {% set items = items + ['Window'] %}
+                {% endif %}
+                {{ items }}
+          - service: "{{ notify_service }}"
+            data:
+              title: "❄️ {{ room_name }}: HVAC Alert"
+              message: "AC running with {{ open_items | join(' & ') }} open - wasting energy!"
+              target: "{{ notify_target }}"
+              data:
+                priority: 0
+      
+      # ==================== PERIODIC MONITORING ====================
+      - conditions:
+          - condition: trigger
+            id: periodic_check
+        sequence:
+          # Check humidity high
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ humidity_enabled and humidity_sensor and current_humidity > humidity_high and humidity_fans | length > 0 and not any_humidity_fans_on }}"
+                sequence:
+                  - service: fan.turn_on
+                    target:
+                      entity_id: "{{ humidity_fans }}"
+                  - condition: template
+                    value_template: "{{ notify_level != 'silent' }}"
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "💨 {{ room_name }}: Humidity Fan"
+                      message: "High humidity ({{ current_humidity }}%) - exhaust on"
+                      target: "{{ notify_target }}"
+          
+          # Check humidity normal
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ humidity_enabled and humidity_sensor and current_humidity < humidity_normal and any_humidity_fans_on }}"
+                sequence:
+                  - service: fan.turn_off
+                    target:
+                      entity_id: "{{ humidity_fans }}"
+                  - condition: template
+                    value_template: "{{ notify_level != 'silent' }}"
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "✅ {{ room_name }}: Humidity Normal"
+                      message: "Humidity normalized ({{ current_humidity }}%) - exhaust off"
+                      target: "{{ notify_target }}"
+          
+          # Check egress door open too long
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notify_egress and door_sensor and is_egress_door and door_open }}"
+                  - condition: template
+                    value_template: >-
+                      {% set door_opened = as_timestamp(states[door_sensor].last_changed) %}
+                      {% set now_ts = as_timestamp(now()) %}
+                      {% set minutes_open = ((now_ts - door_opened) / 60) | int %}
+                      {{ minutes_open >= egress_timeout }}
+                sequence:
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "🚨 {{ room_name }}: SECURITY ALERT"
+                      message: "Egress door open {{ ((as_timestamp(now()) - as_timestamp(states[door_sensor].last_changed)) / 60) | int }} minutes!"
+                      target: "{{ notify_target }}"
+                      data:
+                        priority: 1
+                        sound: "siren"
+          
+          # Check window open too long
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notify_window and window_sensor and window_open }}"
+                  - condition: template
+                    value_template: >-
+                      {% set window_opened = as_timestamp(states[window_sensor].last_changed) %}
+                      {% set now_ts = as_timestamp(now()) %}
+                      {% set hours_open = ((now_ts - window_opened) / 3600) | int %}
+                      {{ hours_open >= window_timeout }}
+                sequence:
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "🪟 {{ room_name }}: Window Alert"
+                      message: "Window open {{ ((as_timestamp(now()) - as_timestamp(states[window_sensor].last_changed)) / 3600) | int }} hours - check HVAC"
+                      target: "{{ notify_target }}"
+                      data:
+                        priority: 0
+          
+          # Check high temperature
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notify_temp and current_temp > temp_alert_threshold }}"
+                sequence:
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "🌡️ {{ room_name }}: High Temp"
+                      message: "Temperature {{ current_temp }}°F (threshold {{ temp_alert_threshold }}°F)"
+                      target: "{{ notify_target }}"
+                      data:
+                        priority: 0
+          
+          # Check prolonged high humidity
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ notify_humidity and humidity_sensor and current_humidity > humidity_alert_threshold }}"
+                sequence:
+                  - service: "{{ notify_service }}"
+                    data:
+                      title: "💧 {{ room_name }}: Humidity Alert"
+                      message: "Humidity {{ current_humidity }}% - check if prolonged"
+                      target: "{{ notify_target }}"
+                      data:
+                        priority: 0
